@@ -495,11 +495,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
+  t->old_priority = priority;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   t->wait_time = 0;
+  t->donated = false;
   list_push_back (&all_list, &t->allelem);
   list_init (&t->donated_list);
+  list_init (&t->lock_list);
   lock_init (&t->donated_lock);
 }
 

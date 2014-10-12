@@ -89,11 +89,14 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
+	int old_priority;                   /* Actual priority before donation */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 	int64_t wait_time;                  /* time to wait */
+	bool donated;
 	struct list donated_list;            /* values of before donated */
 	struct lock donated_lock;
+	struct list lock_list;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
