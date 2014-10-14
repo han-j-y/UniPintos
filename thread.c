@@ -20,15 +20,13 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+/* Random value for basic thread
+   Do not modify this value. */
+#define THREAD_BASIC 0xd42df210
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
-
-static struct list sleep_list;
-
-/* List of all processes.  Processes are added to this list
-   when they are first scheduled and removed when they exit. */
-static struct list all_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -70,7 +68,7 @@ static void init_thread (struct thread *, const char *name, int priority);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
-void thread_schedule_tail (struct thread *prev);
+void schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 /* Initializes the threading system by transforming the code
@@ -93,8 +91,6 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
-  list_init (&sleep_list);
-  list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -174,7 +170,6 @@ thread_create (const char *name, int priority,
   struct switch_entry_frame *ef;
   struct switch_threads_frame *sf;
   tid_t tid;
-  enum intr_level old_level;
 
   ASSERT (function != NULL);
 
@@ -186,11 +181,6 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-
-  /* Prepare thread for first run by initializing its stack.
-     Do this atomically so intermediate values for the 'stack' 
-     member cannot be observed. */
-  old_level = intr_disable ();
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -205,17 +195,9 @@ thread_create (const char *name, int priority,
   /* Stack frame for switch_threads(). */
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
-  sf->ebp = 0;
-
-  intr_set_level (old_level);
 
   /* Add to run queue. */
   thread_unblock (t);
-  // preempt
-  if (t->priority > thread_current ()->priority)
-  {
-	thread_yield();
-  }
 
   return tid;
 }
@@ -231,6 +213,7 @@ thread_block (void)
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
+
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -252,7 +235,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, comp_priority, NULL );
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -301,11 +284,9 @@ thread_exit (void)
   process_exit ();
 #endif
 
-  /* Remove thread from all threads list, set our status to dying,
-     and schedule another process.  That process will destroy us
-     when it calls thread_schedule_tail(). */
+  /* Just set our status to dying and schedule another process.
+     We will be destroyed during the call to schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -314,7 +295,7 @@ thread_exit (void)
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
-thread_yield () 
+thread_yield (void) 
 {
   struct thread *cur = thread_current ();
   enum intr_level old_level;
@@ -323,46 +304,10 @@ thread_yield ()
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, comp_priority, NULL );
+    list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
-}
-
-void
-thread_sleep_yield (int64_t ticks)
-{
-  struct thread *cur = thread_current ();
-  enum intr_level old_level;
-  
-  ASSERT (!intr_context ());
-
-  old_level = intr_disable ();
-  if (cur != idle_thread) 
-  {
-	  new_push_thread (&sleep_list, &cur->elem);
-	  cur->wait_time = ticks;
-  }
-  cur->status = THREAD_READY;
-  schedule ();
-  intr_set_level (old_level);
-}
-
-/* Invoke function 'func' on all threads, passing along 'aux'.
-   This function must be called with interrupts off. */
-void
-thread_foreach (thread_action_func *func, void *aux)
-{
-  struct list_elem *e;
-
-  ASSERT (intr_get_level () == INTR_OFF);
-
-  for (e = list_begin (&all_list); e != list_end (&all_list);
-       e = list_next (e))
-    {
-      struct thread *t = list_entry (e, struct thread, allelem);
-      func (t, aux);
-    }
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -370,8 +315,6 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  //for priority-change
-  thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -468,7 +411,7 @@ running_thread (void)
   uint32_t *esp;
 
   /* Copy the CPU's stack pointer into `esp', and then round that
-     down to the start of a page.  Because `struct thread' is
+     down to the start of a page.  Since `struct thread' is
      always at the beginning of a page and the stack pointer is
      somewhere in the middle, this locates the curent thread. */
   asm ("mov %%esp, %0" : "=g" (esp));
@@ -495,15 +438,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->old_priority = priority;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  t->wait_time = 0;
-  t->donated = false;
-  list_push_back (&all_list, &t->allelem);
-  list_init (&t->donated_list);
-  list_init (&t->lock_list);
-  lock_init (&t->donated_lock);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -550,7 +486,7 @@ next_thread_to_run (void)
    After this function and its caller returns, the thread switch
    is complete. */
 void
-thread_schedule_tail (struct thread *prev)
+schedule_tail (struct thread *prev) 
 {
   struct thread *cur = running_thread ();
   
@@ -583,23 +519,23 @@ thread_schedule_tail (struct thread *prev)
    the running process's state must have been changed from
    running to some other state.  This function finds another
    thread to run and switches to it.
-
-   It's not safe to call printf() until thread_schedule_tail()
-   has completed. */
+   
+   It's not safe to call printf() until schedule_tail() has
+   completed. */
 static void
 schedule (void) 
 {
-  struct thread *cur = running_thread ();
+  struct thread *curr = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 
   ASSERT (intr_get_level () == INTR_OFF);
-  ASSERT (cur->status != THREAD_RUNNING);
+  ASSERT (curr->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
 
-  if (cur != next)
-    prev = switch_threads (cur, next);
-  thread_schedule_tail (prev);
+  if (curr != next)
+    prev = switch_threads (curr, next);
+  schedule_tail (prev); 
 }
 
 /* Returns a tid to use for a new thread. */
@@ -619,55 +555,3 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
-
-void try_wakeup_sleepers (void)
-{
-	struct list_elem* head = list_head(&sleep_list);
-	struct list_elem* tail = list_tail(&sleep_list);
-	struct list_elem* cur = head->next;
-	struct list_elem* temp;
-	struct thread* t;
-
-	while (cur != tail)
-	{
-		t = list_entry (cur,struct thread, elem);
-		if (t->wait_time != 0)
-			t->wait_time -= 1;
-		if (t->wait_time == 0)
-		{
-			temp = cur;
-		}
-		cur = cur->next;
-		if (t->wait_time == 0)
-		{
-			list_remove(temp);
-			new_push_thread (&ready_list, temp);
-		}
-	}
-}
-
-bool *comp_priority (struct list_elem* elem1, struct list_elem* elem2, void *aux)
-{
-	struct thread* t1 = list_entry(elem1, struct thread, elem);
-	struct thread* t2 = list_entry(elem2, struct thread, elem);
-
-	if (t1->priority > t2->priority)
-		return true;
-	else
-		return false;
-}
-
-void new_push_thread (struct list* list, struct list_elem* _elem)
-{
-	struct thread* thr = list_entry (_elem, struct thread, elem);
-	struct thread* cur = thread_current ();
-	
-	// priority 대로 정렬
-	list_insert_ordered (list, _elem, comp_priority, NULL );
-
-	// preempt
-	if (cur != idle_thread && thr->priority > cur->priority)
-	{
-		thread_yield();
-	}
-}
