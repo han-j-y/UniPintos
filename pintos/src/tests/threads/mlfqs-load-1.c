@@ -19,12 +19,12 @@ test_mlfqs_load_1 (void)
 {
   int64_t start_time;
   int elapsed;
+  int elapsed2;
   int load_avg;
   
   ASSERT (thread_mlfqs);
 
   msg ("spinning for up to 45 seconds, please wait...");
-
   start_time = timer_ticks ();
   for (;;) 
     {
@@ -42,8 +42,7 @@ test_mlfqs_load_1 (void)
     }
 
   if (elapsed < 38)
-    fail ("load average took only %d seconds to rise above 0.5", elapsed);
-  msg ("load average rose to 0.5 after %d seconds", elapsed);
+    fail ("load average took only %d seconds to rise above 0.5", elapsed2);
 
   msg ("sleeping for another 10 seconds, please wait...");
   timer_sleep (TIMER_FREQ * 10);

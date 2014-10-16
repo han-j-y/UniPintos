@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -80,6 +81,7 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -87,10 +89,18 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
+	int old_priority;                   /* Actual priority before donation */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+	int64_t wait_time;                  /* time to wait */
+	bool donated;
+	struct list donated_list;            /* values of before donated */
+	struct lock donated_lock;
+	struct list lock_list;
 
-    /* Shared between thread.c and synch.c. */
+	int recent_cpu;
+	int nice;
+    /* Shared bet:ween thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
 #ifdef USERPROG
@@ -125,6 +135,7 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+void thread_sleep_yield (int64_t);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
@@ -137,5 +148,23 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+void calc_load_avg(void);
+void calc_recent_cpu(void);
+
+//mine
+void try_wakeup_sleepers (void);
+bool comp_priority (struct list_elem* elem1, struct list_elem* elem2, void *aux);
+bool comp_priority_cond (struct list_elem* elem1, struct list_elem* elem2, void *aux);
+void new_push_thread (struct list*, struct list_elem*);
+
+struct donated_elem
+{
+	struct list_elem elem;
+	struct lock* lck;
+	int donated_priority;
+};
+
+//myoung
+//int calculate_priority();
 
 #endif /* threads/thread.h */
