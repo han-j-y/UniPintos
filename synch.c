@@ -74,7 +74,7 @@ sema_down (struct semaphore *sema)
     }
 
   sema->value--;
-
+  //printf("sema_down\n");
   intr_set_level (old_level);
 }
 
@@ -121,7 +121,15 @@ sema_up (struct semaphore *sema)
 
   if (!list_empty (&sema->waiters)) 
   {
+	  /*EDDITTED
 	  struct thread* t = list_entry (list_pop_front (&sema->waiters),struct thread, elem);
+	  */
+		
+	  struct list_elem *melem = list_min(&sema->waiters, comp_priority,NULL);	
+	  struct thread* t = list_entry(melem,struct thread, elem);
+		
+	  list_remove(melem); 
+
 	  thread_unblock (t);
 
 	  if (t->priority > thread_current ()->priority)
@@ -224,7 +232,6 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-
   /*donation*/
   if (lock->holder != NULL)
   {
@@ -235,6 +242,8 @@ lock_acquire (struct lock *lock)
 		  delem->lck = lock;
 		  list_push_back (&lock->holder->donated_list,&delem->elem);
 		  lock->holder->priority = thread_current()->priority;
+		  //UPDATED
+		  lock->holder->donated = true;
 	  }
   
 
@@ -257,7 +266,6 @@ lock_acquire (struct lock *lock)
 		  }
 	  }
   }
-
   /**********/
   
   sema_down (&lock->semaphore);
@@ -294,7 +302,6 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-  
   /*donation*/
   if (list_size(&lock->holder->donated_list)>0)
   {
@@ -320,13 +327,14 @@ lock_release (struct lock *lock)
 	  {
 		  lock->holder->priority = delem->donated_priority;
 		  delem = list_pop_back (&lock->holder->donated_list);
-		  if (list_size(&lock->holder->lock_list)==0)
+		  if (list_size(&lock->holder->lock_list)==0){
 			  lock->holder->priority = lock->holder->old_priority;
+			  lock->holder->donated = false;
+		  }
 	      free(delem);
 	  }
   }
   /**********/
-
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
@@ -400,7 +408,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   lock_acquire (lock);
 }
 
-bool *comp_priority_cond (struct list_elem* elem1, struct list_elem* elem2, void *aux)
+bool comp_priority_cond (struct list_elem* elem1, struct list_elem* elem2, void *aux)
 {
 	struct semaphore_elem* t1 = list_entry(elem1, struct semaphore_elem, elem);
 	struct semaphore_elem* t2 = list_entry(elem2, struct semaphore_elem, elem);
