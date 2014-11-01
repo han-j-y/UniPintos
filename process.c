@@ -29,6 +29,7 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
+  char *save_ptr;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -39,20 +40,32 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
+  file_name = strtok_r (file_name, " ", &save_ptr);
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
 }
 
-/* A thread function that loads a user process and makes it start
+/* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *fname)
+start_process (void *file_name_)
 {
-  char *file_name = fname;
+  char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
+  char *arg [LOADER_ARGS_LEN / 2 + 1];
+  char *token;
+  char *save_ptr;
+  int count = 0;
+
+  /* Tokenize the arguments */
+  for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+  {
+	  arg[count++] = token;
+  }
+  int i;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -60,6 +73,9 @@ start_process (void *fname)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+
+  /* Copy the arguments to the process */
+  arguments_init (&arg, count, &if_.esp);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -88,6 +104,7 @@ start_process (void *fname)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+	while(true);
   return -1;
 }
 
@@ -390,7 +407,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
-      /* Do calculate how to fill this page.
+      /* Calculate how to fill this page.
          We will read PAGE_READ_BYTES bytes from FILE
          and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
@@ -462,4 +479,51 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+/*
+  args_[3]
+  args_[2]
+  args_[1]
+  args_[0]
+  word_alignment (x4)
+  positions (args_[4] -> 0)
+  argv
+  argc
+  return address
+*/
+
+void arguments_init (char** args_, const int count, void **esp)
+{
+	uint32_t pos[count];
+	int str_len;
+
+	int i;
+	for (i=count-1; i >= 0; --i)
+	{
+		str_len = strlen(args_[i])+1;
+		*esp -= (str_len);
+		memcpy (*esp, args_[i], str_len);
+		pos[i] = (uint32_t) *esp;
+	}
+
+	*esp = (uint32_t) *esp&0xfffffffc;
+
+	*esp -= 4;
+	*(uint32_t*) (*esp) = 0;
+
+	for ( i = count-1; i >= 0; --i )
+	{
+		*esp -= 4;
+		*(uint32_t*) (*esp) = pos[i];
+	}
+
+	*esp -= 4;
+	*(uint32_t*) (*esp) = (uint32_t) *esp +4;
+
+	*esp -= 4;
+	*(uint32_t*) (*esp) = count;
+
+	*esp -= 4;
+	*(uint32_t*) (*esp) = 0;
 }
