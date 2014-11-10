@@ -24,8 +24,6 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-static struct list sleep_list;
-
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -93,7 +91,6 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
-  list_init (&sleep_list);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -211,11 +208,6 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-  // preempt
-  if (t->priority > thread_current ()->priority)
-  {
-	thread_yield();
-  }
 
   return tid;
 }
@@ -231,6 +223,7 @@ thread_block (void)
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
+
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -252,7 +245,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, comp_priority, NULL );
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -314,7 +307,7 @@ thread_exit (void)
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
-thread_yield () 
+thread_yield (void) 
 {
   struct thread *cur = thread_current ();
   enum intr_level old_level;
@@ -323,26 +316,7 @@ thread_yield ()
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, comp_priority, NULL );
-  cur->status = THREAD_READY;
-  schedule ();
-  intr_set_level (old_level);
-}
-
-void
-thread_sleep_yield (int64_t ticks)
-{
-  struct thread *cur = thread_current ();
-  enum intr_level old_level;
-  
-  ASSERT (!intr_context ());
-
-  old_level = intr_disable ();
-  if (cur != idle_thread) 
-  {
-	  new_push_thread (&sleep_list, &cur->elem);
-	  cur->wait_time = ticks;
-  }
+    list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -370,8 +344,6 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  //for priority-change
-  thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -495,15 +467,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->old_priority = priority;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  t->wait_time = 0;
-  t->donated = false;
   list_push_back (&all_list, &t->allelem);
-  list_init (&t->donated_list);
-  list_init (&t->lock_list);
-  lock_init (&t->donated_lock);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -615,59 +581,24 @@ allocate_tid (void)
 
   return tid;
 }
-
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-void try_wakeup_sleepers (void)
+struct thread* get_thread (tid_t tid)
 {
-	struct list_elem* head = list_head(&sleep_list);
-	struct list_elem* tail = list_tail(&sleep_list);
-	struct list_elem* cur = head->next;
-	struct list_elem* temp;
-	struct thread* t;
-
-	while (cur != tail)
-	{
-		t = list_entry (cur,struct thread, elem);
-		if (t->wait_time != 0)
-			t->wait_time -= 1;
-		if (t->wait_time == 0)
-		{
-			temp = cur;
-		}
-		cur = cur->next;
-		if (t->wait_time == 0)
-		{
-			list_remove(temp);
-			new_push_thread (&ready_list, temp);
-		}
-	}
-}
-
-bool *comp_priority (struct list_elem* elem1, struct list_elem* elem2, void *aux)
-{
-	struct thread* t1 = list_entry(elem1, struct thread, elem);
-	struct thread* t2 = list_entry(elem2, struct thread, elem);
-
-	if (t1->priority > t2->priority)
-		return true;
-	else
-		return false;
-}
-
-void new_push_thread (struct list* list, struct list_elem* _elem)
-{
-	struct thread* thr = list_entry (_elem, struct thread, elem);
-	struct thread* cur = thread_current ();
-	
-	// priority 대로 정렬
-	list_insert_ordered (list, _elem, comp_priority, NULL );
-
-	// preempt
-	if (cur != idle_thread && thr->priority > cur->priority)
-	{
-		thread_yield();
-	}
+  struct list_elem* le;
+  for (le = list_begin(&all_list); le != list_end(&all_list); le = list_next(le))
+  {
+     struct thread* tr = list_entry (le, struct thread, allelem);
+     if (tid == tr->tid)
+     {
+       if (tr->status != THREAD_DYING)
+         return tr;
+       else
+         return NULL;
+     }
+  }
+  return NULL;
 }

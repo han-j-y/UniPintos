@@ -40,8 +40,8 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  file_name = strtok_r (file_name, " ", &save_ptr);
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  char* token = strtok_r (file_name, " ", &save_ptr);
+  tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -104,7 +104,11 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-	while(true);
+	int ret;
+	struct thread* tr = get_thread (child_tid);
+	int st = tr->status;
+	while (get_thread(child_tid) != NULL);
+
   return -1;
 }
 
@@ -498,6 +502,7 @@ void arguments_init (char** args_, const int count, void **esp)
 {
 	uint32_t pos[count];
 	int str_len;
+	int tot = *esp;
 
 	int i;
 	for (i=count-1; i >= 0; --i)
