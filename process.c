@@ -105,8 +105,6 @@ int
 process_wait (tid_t child_tid UNUSED) 
 {
 	int ret;
-	struct thread* tr = get_thread (child_tid);
-	int st = tr->status;
 	while (get_thread(child_tid) != NULL);
 
   return -1;
