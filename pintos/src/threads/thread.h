@@ -84,6 +84,9 @@ struct thread
   {
     /* Owned by thread.c. */
     tid_t tid;                          /* Thread identifier. */
+	tid_t parent_tid;
+	tid_t child_tid;
+	int child_exit_status;
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
@@ -96,6 +99,8 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+	bool waited;
+
 #endif
 
     /* Owned by thread.c. */

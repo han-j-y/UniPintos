@@ -212,12 +212,6 @@ bool *comp_priority_lock (struct list_elem* elem1, struct list_elem* elem2, void
 		return false;
 }
 
-struct lock_elem
-{
-	struct list_elem elem;
-	struct lock * lck;
-};
-
 void
 lock_acquire (struct lock *lock)
 {
@@ -225,39 +219,45 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  /*donation*/
+  /*donation*//*
   if (lock->holder != NULL)
   {
-	  if (lock->holder->priority < thread_current()->priority)
+	  sema_down (&lock->holder->donated_lock.semaphore);
+
+	  struct thread* cur = thread_current();
+	  struct donated_elem* temp;
+	  struct donated_elem* delem;
+	  int lock_holder_pri = lock->holder->priority;
+	  struct list* lock_holder_list= &lock->holder->donated_list;
+
+	  if (list_empty(lock_holder_list))
 	  {
-		  struct donated_elem* delem = malloc (sizeof (struct donated_elem));
-		  delem->donated_priority = lock->holder->priority;
-		  delem->lck = lock;
-		  list_push_back (&lock->holder->donated_list,&delem->elem);
-		  lock->holder->priority = thread_current()->priority;
+		  if (lock_holder_pri < cur->priority)
+		  {
+			 delem = malloc(sizeof(struct donated_elem));
+			 delem->donated_priority = lock_holder_pri;
+			 delem->lck = lock;
+			 lock->holder->priority = cur->priority;
+			 barrier();
+			 list_insert_ordered (lock_holder_list, &delem->elem, comp_priority_lock, NULL);
+		  }
+		  sema_up (&lock->holder->donated_lock.semaphore);
 	  }
-  
-
-	  struct lock_elem* lelem = malloc (sizeof (struct lock_elem));
-	  lelem->lck = lock;
-	  struct list_elem* elem__ = list_head (&lock->holder->lock_list);
-	  while (true)
+	  
+	  else
 	  {
-		  elem__ = list_next (elem__);
-
-		  if (elem__ == list_tail (&lock->holder->lock_list))
+		  temp = list_back (lock_holder_list);
+		  if (temp->donated_priority < cur->priority)
 		  {
-			  list_push_front (&lock->holder->lock_list, &lelem->elem);
-			  break;
+			 delem = malloc(sizeof(struct donated_elem));
+			 delem->donated_priority = lock_holder_pri;
+			 delem->lck = lock;
+			 lock->holder->priority = cur->priority;
+			 list_insert_ordered (lock_holder_list, &delem->elem, comp_priority_lock, NULL);
 		  }
-		  if (list_entry (elem__, struct lock_elem, elem)->lck == lock)
-		  {
-			  free (lelem);
-			  break;
-		  }
+		  sema_up (&lock->holder->donated_lock.semaphore);
 	  }
-  }
-
+  }*/
   /**********/
   
   sema_down (&lock->semaphore);
@@ -295,36 +295,15 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
   
-  /*donation*/
-  if (list_size(&lock->holder->donated_list)>0)
+  /*donation*//*
+  struct thread* cur = thread_current();
+  if (!list_empty(&cur->donated_list))
   {
-	  struct lock_elem* lelem;
-	  struct list_elem* elem__ = list_head (&lock->holder->lock_list);
-	  while (true)
-	  {
-		  elem__ = list_next (elem__);
-
-		  if (elem__ == list_tail (&lock->holder->lock_list))
-		  {
-			  break;
-		  }
-		  if (list_entry (elem__, struct lock_elem, elem)->lck == lock)
-		  {
-			  list_remove(elem__);
-			  break;
-		  }
-	  }
-
-	  struct donated_elem* delem = list_back (&lock->holder->donated_list);
-	  if (delem->lck == lock)
-	  {
-		  lock->holder->priority = delem->donated_priority;
-		  delem = list_pop_back (&lock->holder->donated_list);
-		  if (list_size(&lock->holder->lock_list)==0)
-			  lock->holder->priority = lock->holder->old_priority;
-	      free(delem);
-	  }
-  }
+	  struct donated_elem* delem;
+	  delem = list_pop_front (&cur->donated_list);
+	  cur->priority = delem->donated_priority;
+	  free (delem);
+  }*/
   /**********/
 
   lock->holder = NULL;

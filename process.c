@@ -17,7 +17,6 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -44,11 +43,7 @@ process_execute (const char *file_name)
   char* token = strtok_r (file_name, " ", &save_ptr);
   tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy);
-
-  get_thread (tid)->parent_tid = thread_current()->tid; // child -> parent
-  thread_current()->child_tid = tid;                    // parent-> child
-
+    palloc_free_page (fn_copy); 
   return tid;
 }
 
@@ -109,28 +104,10 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-	int ret = -1;
+	int ret;
+	while (get_thread(child_tid) != NULL);
 
-	if (child_tid == TID_ERROR)
-		return TID_ERROR;
-
-	struct thread* child = get_thread (child_tid);
-
-	if (child == NULL)
-		return ret;
-
-	if (child->parent_tid != thread_current()->tid)
-		return ret;
-
-	if (child->waited = true)
-		return ret;
-
-	while (get_thread(child_tid) != NULL)
-		ret = thread_current()->child_exit_status;
-
-	child->waited = true;
-
-  return ret;
+  return -1;
 }
 
 /* Free the current process's resources. */
