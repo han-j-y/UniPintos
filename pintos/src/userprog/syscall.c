@@ -52,7 +52,7 @@ int sys_filesize(int fd);
 int sys_tell(int fd);
 int sys_close(int fd);
 int sys_read(int fd, void* buffer, off_t size);
-int sys_create(char* file, off_t size);
+bool sys_create(char* file, off_t size);
 int sys_seek(int fd, off_t pos);
 int sys_write(int fd, const void* buffer, off_t size);
 int sys_remove(char *file);
@@ -92,7 +92,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 			case SYS_HALT:
 				break;
 			case SYS_EXEC:
-				if (safe_ptr (arg))
+				if (safe_ptr (arg) && safe_ptr (*arg))
 				{
 					tid_t pid = process_execute (*arg);
 					//termination
@@ -144,7 +144,15 @@ syscall_handler (struct intr_frame *f UNUSED)
 
 void exit (int status)
 {
+	struct thread* tmp = get_thread(thread_current()->parent_tid);
 	printf ("%s: exit(%d)\n", thread_current()->name, status);
+
+	if (tmp != NULL)
+	{
+		sema_up (&tmp->wait);
+		tmp->child_exit_status = status;
+	}
+
 	thread_exit();
 }
 int sys_seek(int fd, off_t pos)
@@ -184,6 +192,8 @@ int sys_close(int fd)
 int sys_open(char *file)
 {
 	struct file *fp;
+	if (safe_ptr (file));
+
 	if (file[0] == 0)
 		return -1;
 	else{
@@ -212,10 +222,12 @@ int sys_filesize(int fd)
 
 int sys_read(int fd, void* buffer, off_t size)
 {
+	if (safe_ptr (buffer));
+
 	if(fd<2) return -1;
 	struct file *fp = fe[fd];
 	if(fp==NULL) return -1;
-	int rsize = file_read(fp, buffer, size);;
+	int rsize = file_read(fp, buffer, size);
 	if (rsize < 0)
 		return -1;
 	else
@@ -240,6 +252,8 @@ bool sys_create (char *file, off_t size)
 
 int sys_write(int fd, const void* buffer, off_t size)
 {
+	if (safe_ptr (buffer));
+
 	struct file* fp = fe[fd];
 	if(fp==NULL) return -1;
 	file_lock_acquire();
@@ -252,6 +266,8 @@ int sys_write(int fd, const void* buffer, off_t size)
 }
 int sys_remove(char *file)
 {
+	if (safe_ptr (file));
+
 	if (file[0] == '\0')
 		return 0;
 	else

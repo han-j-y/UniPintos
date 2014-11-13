@@ -470,6 +470,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   t->waited = false;
+  t->open_success = true;
+  sema_init (&t->wait, 0);
+  sema_init (&t->open_s, 0);
   list_push_back (&all_list, &t->allelem);
 }
 

@@ -104,10 +104,24 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-	int ret;
-	while (get_thread(child_tid) != NULL);
+		int ret = -1;
 
-  return -1;
+	if (child_tid == TID_ERROR)
+		return TID_ERROR;
+
+	struct thread* child = get_thread (child_tid);
+
+	if (child == NULL)
+		return ret;
+
+	if (child->parent_tid != thread_current()->tid)
+		return ret;
+
+
+	while (get_thread(child_tid) != NULL)
+		ret = thread_current()->child_exit_status;
+
+  return ret;
 }
 
 /* Free the current process's resources. */

@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -86,7 +87,10 @@ struct thread
     tid_t tid;                          /* Thread identifier. */
 	tid_t parent_tid;
 	tid_t child_tid;
+	bool open_success;
 	int child_exit_status;
+	struct semaphore wait;
+	struct semaphore open_s;
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */

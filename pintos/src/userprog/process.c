@@ -41,13 +41,22 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  char* token = strtok_r (file_name, " ", &save_ptr);
+  char f[256];
+  memcpy (f, file_name, strlen(file_name)+1);
+  char* token = strtok_r (f, " ", &save_ptr);
   tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
+
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
 
-  get_thread (tid)->parent_tid = thread_current()->tid; // child -> parent
+  get_thread (tid)->parent_tid = thread_current()->tid;
+  sema_down (&thread_current()->open_s);
+  if (!thread_current()->open_success)
+	  return -1;
+
   thread_current()->child_tid = tid;                    // parent-> child
+  thread_current()->child_exit_status = -2; // -2 nothin happens. else, happens
+  thread_current()->waited = false;
 
   return tid;
 }
@@ -78,6 +87,8 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+  sema_up (&get_thread (thread_current()->parent_tid)->open_s);
+  get_thread (thread_current()->parent_tid)->open_success = success;
 
   /* Copy the arguments to the process */
   arguments_init (&arg, count, &if_.esp);
@@ -112,23 +123,38 @@ process_wait (tid_t child_tid UNUSED)
 	int ret = -1;
 
 	if (child_tid == TID_ERROR)
-		return TID_ERROR;
+		return ret;
 
 	struct thread* child = get_thread (child_tid);
 
 	if (child == NULL)
 		return ret;
+	
+	// wait부르기 전에 끝날경우.. 처리 (구현해야함)
+	if (child->status == THREAD_DYING && thread_current()->child_exit_status == -2)
+		return ret;
+
+	if (child->status == THREAD_DYING && thread_current()->child_exit_status != -2)
+		return thread_current()->child_exit_status;
 
 	if (child->parent_tid != thread_current()->tid)
 		return ret;
-
-	if (child->waited = true)
+	
+	if (thread_current()->waited)
 		return ret;
-
-	while (get_thread(child_tid) != NULL)
+	
+	sema_down (&thread_current()->wait);
+	while (get_thread(child_tid) != NULL);
+	
+	if(ret == -2)
+	{
+		return ret;
+	}
+	else
+	{
 		ret = thread_current()->child_exit_status;
-
-	child->waited = true;
+		thread_current()->waited = true;
+	}
 
   return ret;
 }
