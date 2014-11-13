@@ -1,15 +1,36 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "pagedir.h"
 
 bool safe_ptr (void*);
 struct file* fe[255]={0,};
+static struct lock file_lock;
+
+struct file{
+	struct inode *inode;
+	off_t pos;
+	bool deny_write;
+};
+
+void file_lock_acquire ()
+{
+	if (!lock_held_by_current_thread(&file_lock))
+		lock_acquire (&file_lock);
+}
+
+void file_lock_release ()
+{
+	if (lock_held_by_current_thread(&file_lock))
+		lock_release (&file_lock);
+}
 
 static void syscall_handler (struct intr_frame *);
 int fdc = 2;
@@ -18,6 +39,7 @@ int fdc = 2;
 syscall_init (void) 
 {
 	intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+	lock_init (&file_lock);
 }
 
 bool safe_ptr (void* ptr)
@@ -36,7 +58,7 @@ int sys_filesize(int fd);
 int sys_tell(int fd);
 int sys_close(int fd);
 int sys_read(int fd, void* buffer, off_t size);
-int sys_create(char* file, off_t size);
+bool sys_create(char* file, off_t size);
 int sys_seek(int fd, off_t pos);
 int sys_write(int fd, const void* buffer, off_t size);
 int sys_remove(char *file);
@@ -50,7 +72,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 	//Validation
 	if (safe_ptr (esp))
 	{
-		int *arg = esp+1;;
+		int *arg=esp+1;
 		int *syscall_number = esp;
 
 		switch (*syscall_number)
@@ -76,8 +98,19 @@ syscall_handler (struct intr_frame *f UNUSED)
 			case SYS_HALT:
 				break;
 			case SYS_EXEC:
+				if (safe_ptr (arg) && safe_ptr (*arg))
+				{
+					tid_t pid = process_execute (*arg);
+					//termination
+					f->eax = pid;
+				}
 				break;
 			case SYS_WAIT:
+				if (safe_ptr (arg))
+				{
+					int status = process_wait (*arg);
+					f->eax = status;
+				}
 				break;
 			case SYS_CREATE: // const char *file, unsigned initial_size
 				if (safe_ptr(arg) && safe_ptr(arg+1) && safe_ptr(arg+2))
@@ -117,20 +150,33 @@ syscall_handler (struct intr_frame *f UNUSED)
 
 void exit (int status)
 {
+	struct thread* tmp = get_thread(thread_current()->parent_tid);
 	printf ("%s: exit(%d)\n", thread_current()->name, status);
+
+	if (tmp != NULL)
+	{
+		sema_up (&tmp->wait);
+		tmp->child_exit_status = status;
+	}
+
 	thread_exit();
 }
 int sys_seek(int fd, off_t pos)
 {
 	struct file *fp = fe[fd] ;
+	file_lock_acquire();
 	file_seek(fp, pos);
+	file_lock_release();
 	return 0;
 }
 int sys_tell(int fd)
 {
 	int rsize;
 	struct file *fp = fe[fd] ;
-	if ((rsize = file_tell(fp)) <= 0)
+	file_lock_acquire();
+	rsize = file_tell(fp);
+	file_lock_release();
+	if (rsize <= 0)
 		return -1;
 	else
 		return rsize;
@@ -140,7 +186,9 @@ int sys_close(int fd)
 	struct file *fp = fe[fd] ;
 	if(fp!=NULL)
 	{
+		file_lock_acquire();
 		file_close(fp);
+		file_lock_release();
 		fe[fd]=NULL;
 		return  true;
 	}
@@ -150,14 +198,19 @@ int sys_close(int fd)
 int sys_open(char *file)
 {
 	struct file *fp;
+	if (safe_ptr (file));
+
 	if (file[0] == 0)
 		return -1;
 	else{
+		file_lock_acquire();
 		fp = filesys_open(file);
+		file_lock_release();
 		if(fp==NULL)
 			return -1;
 		else
 		{
+			file_deny_write(fp);
 			fe[fdc] = fp;
 			return fdc++;
 		}
@@ -176,46 +229,63 @@ int sys_filesize(int fd)
 
 int sys_read(int fd, void* buffer, off_t size)
 {
+	if (safe_ptr (buffer));
+
 	if(fd<2) return -1;
 	struct file *fp = fe[fd];
 	if(fp==NULL) return -1;
-	int rsize = file_read(fp, buffer, size);;
+	int rsize = file_read(fp, buffer, size);
 	if (rsize < 0)
 		return -1;
 	else
 		return rsize;
 }
 
-int sys_create (char *file, off_t size)
+bool sys_create (char *file, off_t size)
 {
+	if (safe_ptr (file));
 
-	if (file[0] == '\0')
+	if (file[0] == '\0' || strlen(file) > 256)
 		return 0;
+
 	else
 	{
+		file_lock_acquire();
 		bool suc = filesys_create(file, size);
+		file_lock_release();
 		return suc;
 	}
-
 }
 
 int sys_write(int fd, const void* buffer, off_t size)
 {
+	if (safe_ptr (buffer));
+
 	struct file* fp = fe[fd];
 	if(fp==NULL) return -1;
+	file_lock_acquire();
+	if(fp->deny_write)
+		file_allow_write(fp);
 	int wsize = file_write(fp, buffer, size);
+	file_deny_write(fp);
+	file_lock_release();
 	if(wsize < 0)
 		return -1;
 	else
 		return wsize;
 }
+
 int sys_remove(char *file)
 {
+	if (safe_ptr (file));
+
 	if (file[0] == '\0')
 		return 0;
 	else
 	{
+		file_lock_acquire();
 		int suc = filesys_remove (file);
+		file_lock_release();
 		return suc;
 	}
 }
