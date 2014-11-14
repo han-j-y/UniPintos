@@ -153,11 +153,6 @@ void exit (int status)
 		tmp->child_exit_status = status;
 	}
 
-	//if( thread_current()->itself != NULL )
-	//{
-	//	file_allow_write ( thread_current()->itself );
-	//}
-
 	thread_exit();
 }
 int sys_seek(int fd, off_t pos)
