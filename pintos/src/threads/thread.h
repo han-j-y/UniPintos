@@ -5,7 +5,6 @@
 #include <list.h>
 #include <stdint.h>
 #include "synch.h"
-#include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -92,7 +91,6 @@ struct thread
 	int child_exit_status;
 	struct semaphore wait;
 	struct semaphore open_s;
-	struct file* itself;
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
@@ -106,8 +104,6 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 	bool waited;
-	struct file* fd_table[255];
-	struct file* executed;
 
 #endif
 
