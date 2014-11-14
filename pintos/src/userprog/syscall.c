@@ -153,6 +153,11 @@ void exit (int status)
 		tmp->child_exit_status = status;
 	}
 
+	//if( thread_current()->itself != NULL )
+	//{
+	//	file_allow_write ( thread_current()->itself );
+	//}
+
 	thread_exit();
 }
 int sys_seek(int fd, off_t pos)
@@ -177,7 +182,7 @@ int sys_tell(int fd)
 }
 int sys_close(int fd)
 {
-	struct file *fp = fe[fd] ;
+	struct file *fp = fe[fd];
 	if(fp!=NULL)
 	{
 		file_lock_acquire();
@@ -189,9 +194,11 @@ int sys_close(int fd)
 	else
 		return false;
 }
+
 int sys_open(char *file)
 {
 	struct file *fp;
+
 	if (safe_ptr (file));
 
 	if (file[0] == 0)
@@ -199,12 +206,16 @@ int sys_open(char *file)
 	else{
 		file_lock_acquire();
 		fp = filesys_open(file);
-		file_lock_release();
+		
 		if(fp==NULL)
+		{
+			file_lock_release();
 			return -1;
+		}
 		else
 		{
 			fe[fdc] = fp;
+			file_lock_release();
 			return fdc++;
 		}
 	}
@@ -227,7 +238,9 @@ int sys_read(int fd, void* buffer, off_t size)
 	if(fd<2) return -1;
 	struct file *fp = fe[fd];
 	if(fp==NULL) return -1;
+	file_lock_acquire();
 	int rsize = file_read(fp, buffer, size);
+	file_lock_release();
 	if (rsize < 0)
 		return -1;
 	else
@@ -256,6 +269,7 @@ int sys_write(int fd, const void* buffer, off_t size)
 
 	struct file* fp = fe[fd];
 	if(fp==NULL) return -1;
+
 	file_lock_acquire();
 	int wsize = file_write(fp, buffer, size);
 	file_lock_release();
@@ -264,6 +278,7 @@ int sys_write(int fd, const void* buffer, off_t size)
 	else
 		return wsize;
 }
+
 int sys_remove(char *file)
 {
 	if (safe_ptr (file));
