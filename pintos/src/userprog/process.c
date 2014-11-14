@@ -87,14 +87,6 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-
-  struct file *f = filesys_open (arg[0]);
-  if (f != NULL)
-  {
-    thread_current()->executed = f;
-    file_deny_write (f);
-  }
-  
   sema_up (&get_thread (thread_current()->parent_tid)->open_s);
   get_thread (thread_current()->parent_tid)->open_success = success;
 
@@ -103,7 +95,6 @@ start_process (void *file_name_)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-
   if (!success) 
     thread_exit ();
 
@@ -157,7 +148,7 @@ process_wait (tid_t child_tid UNUSED)
 	
 	if(ret == -2)
 	{
-		return -1;
+		return ret;
 	}
 	else
 	{
@@ -190,12 +181,6 @@ process_exit (void)
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
-
-	  if (cur->executed != NULL)
-      {
-		  file_allow_write (cur->executed);
-		  file_close (cur->executed);
-      }
     }
 }
 
