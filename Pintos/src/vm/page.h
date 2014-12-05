@@ -8,20 +8,20 @@
 
 struct supp_page
 {
-	void* user_addr;
-	bool loaded;
+	void* user_addr;		/*user address of this page*/
+	bool loaded;			/*If the corresponding frame is loaded or not*/
 
-	int type;
-	struct file* file;
-	off_t offset;
-	uint32_t read_bytes;
-	uint32_t zero_bytes;
-	bool writable;
+	int type;			/*supp_page type. 1 is file, 2 is swap, 3 file in swap*/
+	struct file* file;		/*if supp_page type is 1, corresponding file*/
+	off_t offset;			/*offset of the virtual address*/
+	uint32_t read_bytes;		/*needed space for data out of 4KB*/
+	uint32_t zero_bytes;		/*4KB - read_bytes*/
+	bool writable;			/*if the page is writable or not*/
 
-	size_t swap_index;
-	bool swap_writable;
+	size_t swap_index;		/*index to swap*/
+	bool swap_writable;		/*if swap is  writable or not*/
 
-	struct hash_elem elem;
+	struct hash_elem elem;		/*supplemental page table element*/
 };
 
 struct supp_page* create_supp_page (struct file*, off_t offset, 
